@@ -1,39 +1,60 @@
 import os
-from fastapi import FastAPI, File, UploadFile
-from fastapi.exceptions import HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import json
+import shutil
+from pathlib import Path
 
 
 app = FastAPI()
-items = {
-    1: {"name": "Item 1", "description": "This is item 1"},
-    2: {"name": "Item 2", "description": "This is item 2"},
-    3: {"name": "Item 3", "description": "This is item 3"},
+
+
+UPLOAD_DIR = Path("uploaded_files")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+ALLOWED_FILE_TYPES = {
+    "application/json": ".json",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"
 }
 
-@app.get("/items/{item_id}")
-async def read_item(item_id: int):
-    if item_id in items:
-        return items[item_id]
-    return {"error": "Item not found"}
 
-@app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Invalid document type")
+def get_file_extension(content_type: str):
+    return ALLOWED_FILE_TYPES.get(content_type)
 
-    contents = await file.read()
-    file_path = f"uploads/{file.filename}"
+@app.post("/file/upload")
+def upload_file(file: UploadFile = File(...)):
+   
+    file_extension = get_file_extension(file.content_type)
+    if not file_extension:
+        raise HTTPException(status_code=415, detail="Invalid file type. Only JSON, PPTX, DOCX, and XLSX files are allowed.")
     
-    # Create uploads directory if it doesn't exist
-    os.makedirs("uploads", exist_ok=True)
+ 
+    file_path = UPLOAD_DIR / f"{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
     
-    with open(file_path, "wb") as f:
-        f.write(contents)
+    return {"filename": file.filename, "message": "File uploaded successfully."}
 
-    return {"message": "PDF uploaded successfully"}
+@app.post("/file/uploaddownloaded")
+def upload_and_download_file(file: UploadFile = File(...)):
+
+    file_extension = get_file_extension(file.content_type)
+    if not file_extension:
+        raise HTTPException(status_code=415, detail="Invalid file type. Only JSON, PPTX, DOCX, and XLSX files are allowed.")
+    
+   
+    file_path = UPLOAD_DIR / f"{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+   
+    return FileResponse(file_path, filename=file.filename, headers={"Content-Type": file.content_type})
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-#http://127.0.0.1:8000/docs#/default/upload_pdf_upload_post
-#uvicorn main:app --reload
+    uvicorn.run(app, host="0.0.0.0", port=8000)  
